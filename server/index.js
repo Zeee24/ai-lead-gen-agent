@@ -1,14 +1,21 @@
 const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const axios = require('axios');
-const cheerio = require('cheerio');
-const OpenAI = require('openai');
-
-dotenv.config();
+const multer = require('multer');
+const csv = require('csv-parser');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../frontend/build')));
+
+// File upload configuration
+const upload = multer({ dest: 'uploads/' });
+
+
+
 
 // Initialize OpenAI (optional)
 let openai = null;
@@ -70,45 +77,41 @@ class EmailFinder {
 }
 
 // AI Email Generator
-async function generateAIEmail(profile) {
-  if (!openai) {
-    return `Subject: Partnership opportunity with ${profile.company}
+function generateEmailSubject(contact) {
+  const subjects = [
+    `Quick question about ${contact.company || contact.Company}`,
+    `Scaling opportunities for ${contact.company || contact.Company}`,
+    `${contact.name || contact.Name}, thought you'd find this interesting`
+  ];
+  return subjects[Math.floor(Math.random() * subjects.length)];
+}
 
-Hi ${profile.name.split(' ')[0]},
+function generateEmailBody(contact) {
+  const name = contact.name || contact.Name || 'there';
+  const company = contact.company || contact.Company || 'your company';
+  
+  return `Hi ${name},
 
-I noticed your role as ${profile.title} at ${profile.company} and wanted to reach out about a potential collaboration.
+I noticed ${company} is likely focused on growth and efficiency. I've been helping similar companies in your industry automate their lead generation process with AI.
 
-We help companies like ${profile.company} streamline their operations and increase efficiency through our services.
+Most sales teams spend 20+ hours weekly on manual prospecting. Our AI system processes 1000+ contacts into personalized campaigns in minutes.
 
-Would you be interested in a brief 15-minute conversation to explore how we might be able to help ${profile.company} achieve its goals?
+Would you be interested in a quick 10-minute demo of how this could work for ${company}?
 
 Best regards,
-[Your Name]`;
-  }
+[Your Name]
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a professional email copywriter specializing in B2B outreach. Write concise, personalized cold emails.'
-        },
-        {
-          role: 'user',
-          content: `Write a professional cold email to ${profile.name}, who works as ${profile.title} at ${profile.company}. The email should be personalized, concise (under 150 words), and include a clear call-to-action. Format: Subject: [subject line] followed by the email body.`
-        }
-      ],
-      max_tokens: 300,
-      temperature: 0.7
-    });
-
-    return response.choices[0].message.content.trim();
-  } catch (error) {
-    console.error('AI generation error:', error);
-    return generateAIEmail({ ...profile }); // Fallback to template
-  }
+P.S. Happy to send over a case study of how we helped a similar company increase their response rates by 340%.`;
 }
+// Serve React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
 
 const emailFinder = new EmailFinder();
 
@@ -118,40 +121,35 @@ app.get('/api/test', (req, res) => {
 });
 
 // LinkedIn scraper endpoint
-app.post('/api/scrape', async (req, res) => {
+app.post('/api/process-contacts', async (req, res) => {
   try {
-    const { linkedinUrl } = req.body;
-    
-    const response = await axios.get(linkedinUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-      }
-    });
-    
-    const $ = cheerio.load(response.data);
-    
-    // Extract basic info (this is simplified - LinkedIn has anti-bot measures)
-    const name = $('h1').first().text().trim() || 'John Doe';
-    const title = $('.text-body-medium').first().text().trim() || 'Software Engineer';
-    const company = $('.text-body-small').first().text().trim() || 'TechCorp Inc';
+    const { contacts } = req.body;
+
+     // Simulate AI processing (replace with actual OpenAI API later)
+    const processedContacts = contacts.map(contact => ({
+      name: contact.name || contact.Name,
+      email: contact.email || contact.Email,
+      company: contact.company || contact.Company,
+      title: contact.title || contact.Title || 'Professional',
+      emailSubject: generateEmailSubject(contact),
+      emailBody: generateEmailBody(contact)
+    }));
     
     res.json({
       success: true,
-      data: { name, title, company, url: linkedinUrl }
+      processedContacts,
+      totalProcessed: processedContacts.length
     });
+    
   } catch (error) {
-    // Fallback data for demo purposes
-    res.json({
-      success: true,
-      data: {
-        name: 'Demo User',
-        title: 'Marketing Manager', 
-        company: 'Sample Company',
-        url: req.body.linkedinUrl
-      }
-    });
+    console.error('Processing error:', error);
+    res.status(500).json({ error: 'Processing failed' });
   }
 });
+    
+// (Removed misplaced LinkedIn scraping code block that caused syntax error)
+
+
 
 // Generate emails endpoint
 app.post('/api/generate-emails', async (req, res) => {
